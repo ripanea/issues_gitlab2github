@@ -1,0 +1,127 @@
+#!/usr/bin/env python2.7
+
+import argparse
+import logging
+import sys
+import json
+import time
+
+from GitLabRepo import GitLabRepo
+from GitHubRepo import GitHubRepo
+
+def configure_argparser(argparser_obj):
+
+    # Path to sample set config file
+    argparser_obj.add_argument("-c", "--config",
+                               action="store",
+                               type=argparse.FileType("r"),
+                               dest="config_file",
+                               required=True,
+                               help="Path to config file.")
+
+    # Verbosity level
+    argparser_obj.add_argument("-v",
+                               action='count',
+                               dest='verbosity_level',
+                               required=False,
+                               default=0,
+                               help="Increase verbosity of the program."
+                                    "Multiple -v's increase the verbosity level:\n"
+                                    "   0 = Errors\n"
+                                    "   1 = Errors + Warnings\n"
+                                    "   2 = Errors + Warnings + Info\n"
+                                    "   3 = Errors + Warnings + Info + Debug")
+
+def configure_logging(verbosity):
+    # Setting the format of the logs
+    FORMAT = "[%(asctime)s] %(levelname)s: %(message)s"
+
+    # Configuring the logging system to the lowest level
+    logging.basicConfig(level=logging.DEBUG, format=FORMAT, stream=sys.stderr)
+
+    # Defining the ANSI Escape characters
+    BOLD = '\033[1m'
+    DEBUG = '\033[92m'
+    INFO = '\033[94m'
+    WARNING = '\033[93m'
+    ERROR = '\033[91m'
+    END = '\033[0m'
+
+    # Coloring the log levels
+    if sys.stderr.isatty():
+        logging.addLevelName(logging.ERROR, "%s%sERROR%s%s" % (BOLD, ERROR, END, END))
+        logging.addLevelName(logging.WARNING, "%s%sWARNING%s%s" % (BOLD, WARNING, END, END))
+        logging.addLevelName(logging.INFO, "%s%sINFO%s%s" % (BOLD, INFO, END, END))
+        logging.addLevelName(logging.DEBUG, "%s%sDEBUG%s%s" % (BOLD, DEBUG, END, END))
+
+    # Setting the level of the logs
+    level = [logging.ERROR, logging.WARNING, logging.INFO, logging.DEBUG][verbosity]
+    logging.getLogger().setLevel(level)
+
+def main():
+
+    # Create and configure argument parser
+    argparser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
+    configure_argparser(argparser)
+
+    # Parse arguments
+    args = argparser.parse_args()
+
+    # Configure logging
+    configure_logging(args.verbosity_level)
+
+    # Load input file
+    input_data = json.load(args.config_file)
+
+    # Connect to GitLab repository
+    gitlab_repo = GitLabRepo(**input_data["gitlab"])
+    gitlab_repo.connect()
+
+    # Connect to GitHub repository
+    github_repo = GitHubRepo(**input_data["github"])
+    github_repo.connect()
+
+    # Migrate all labels
+    logging.info("Adding the labels")
+    for label in gitlab_repo.iter_labels():
+        github_repo.add_label(name=label.name,
+                              color=label.color,
+                              description=label.description)
+
+    # Migrate all milestones
+    logging.info("Adding the milestones")
+    for milestone in gitlab_repo.iter_milestones():
+        github_repo.add_milestone(title=milestone.title,
+                                  state=milestone.state,
+                                  description=milestone.description,
+                                  due_on=milestone.due_date)
+
+    # Migrate all issues
+    count = 0
+    for issue in gitlab_repo.iter_issues():
+
+        # Get assignees and map them to correct name
+        assignees = [ input_data["usermap"][assignee["username"]] for assignee in issue.assignees ]
+
+        # Get milestone title if milestone exists
+        milestone = issue.milestone["title"] if issue.milestone is not None else None
+
+        # Add the issue to the repo
+        github_repo.add_issue(title=issue.title,
+                              body=issue.description,
+                              assignees=assignees,
+                              milestone=milestone,
+                              labels=issue.labels,
+                              state=issue.state)
+
+        # Provide status
+        count += 1
+        if count % 10 == 0:
+            logging.info("%d issues added." % count)
+
+        # Sleep for 2 seconds per request, so that we don't abuse the rate limit
+        time.sleep(2)
+
+if __name__ == "__main__":
+    main()
+
