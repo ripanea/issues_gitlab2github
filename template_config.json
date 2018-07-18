@@ -1,0 +1,15 @@
+{
+  "gitlab": {
+    "URL": "<gitlab_URL>",
+    "token": "<gitlab_access_token>",
+    "repository": "<username/repo_name>"
+  },
+  "github": {
+    "token": "<github_access_token>",
+    "repository": "<username/repo_name>"
+  },
+  "usermap": {
+    "<gitlab_user1": "<github_user1>",
+    "<gitlab_user2": "<github_user2>"
+  }
+}
