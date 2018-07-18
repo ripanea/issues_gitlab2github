@@ -1,6 +1,5 @@
 from datetime import datetime
 import logging
-import time
 
 import github
 from github.GithubObject import NotSet
